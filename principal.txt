@@ -1,0 +1,461 @@
+//macro_name="MMDx"  //Requires IJ 1.43h //by hpuig@mit.edu , fgpolite@mit.edu
+//open picture before running code
+setBatchMode(true);
+run("Colors...", "foreground=black background=white selection=blue"); //change imageJ setup, to ensure that fill during rotations will be done in white color
+//----------------------------ORGANIZING THE CODE: GET INFORMATION OF PIC AND CREATE NAME STRINGS---------------------------
+//get date to label pic
+	MonthNames = newArray("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec");
+     DayNames = newArray("Sun", "Mon","Tue","Wed","Thu","Fri","Sat");
+     getDateAndTime(year, month, dayOfWeek, dayOfMonth, hour, minute, second, msec);
+     TimeString ="Date: "+DayNames[dayOfWeek]+" ";
+     if (dayOfMonth<10) {TimeString = TimeString+"0";}
+     TimeString = TimeString+dayOfMonth+"-"+MonthNames[month]+"-"+year+"\nTime: ";
+     if (hour<10) {TimeString = TimeString+"0";}
+     TimeString = TimeString+hour+":";
+     if (minute<10) {TimeString = TimeString+"0";}
+     TimeString = TimeString+minute+":";
+     if (second<10) {TimeString = TimeString+"0";}
+     TimeString = TimeString+second;
+//
+//Get information about the image
+imgtitle    = getTitle();
+index = lastIndexOf(imgtitle, ".");
+if (index!=-1) imgtitle = substring(imgtitle, 0, index);  // remove suffix
+titlebase = imgtitle;
+imgID       = getImageID();
+filedir     = split(getDirectory("image"),"\n");
+imgdir      = filedir[0];
+fullimgwidth    = getWidth();  // this is in pixels
+fullimgheight   = getHeight();
+	//Here counts if more than one image is measured in the for loop in line 3 of the code.
+	q=parseInt(imgtitle)+1;
+	p=d2s(q,0);
+	nextimg=imgdir+p+".png";
+//Image in work names:
+procimgID = imgtitle+"_processing.png";
+startimg = imgdir+imgtitle+"_startimg.png";
+startimgID = imgtitle+"_startimg.png";
+precropimg = imgdir+imgtitle+"_precrop.png";
+precropimgID = imgtitle+"_precrop.png";
+mprocID = imgtitle+"_proc.png";
+outbox=imgdir+imgtitle+"_outsidebox.png";
+markers= imgdir+titlebase+"_MarkerInformation.txt";
+outsidebox= imgdir+titlebase+"_outsidebox.txt";
+laneprof= imgdir+titlebase+"_LaneProfiles.txt";
+intens= imgdir+titlebase+"_Gaussian_Intensities.txt";
+outlines= imgdir+titlebase+"_outlines.png";
+msummary=imgdir+titlebase+"_MarkerSummary.txt";
+sqtopID=imgtitle+"_sq.png";
+sqbotID=imgtitle+"_sq2.png";
+//variables that we can change
+fullimgrollrad=313/490*fullimgheight; //usually rollrad = 50 in imageJ, here I make it a % of the image height
+
+starttime=getTime(); //calculate how long the code takes to run
+//---------------------------FIND OUTSIDE BOX AND CROP THE IMAGE------------------------------------------------
+run("Duplicate...", "title="+precropimgID);
+saveAs("png", precropimg);
+run("Subtract Background...", "rolling="+fullimgrollrad+" light");
+run("Duplicate...", "title="+precropimgID);
+run("RGB Stack");
+run("Stack to Images");
+//keep red and blue images. In red image, the red outside border is white. In blue image, the red outside border is black.
+	//For future work, it might be better to do outside border in green, but for now it does not matter.
+imageCalculator("Substract create", "Red","Blue");
+
+run("8-bit");
+run("Invert LUT");
+setAutoThreshold("Default");
+run("Convert to Mask");
+//find the border of the outside box. We set it to be a box of size between picture size 1 to 1/32 size
+run("Set Measurements...", "area centroid perimeter bounding feret's redirect=None decimal=3");
+aboxmax=fullimgwidth*fullimgheight;
+aboxmin=aboxmax/32;
+run("Analyze Particles...", "size="+aboxmin+"-"+aboxmax+" circularity=0.20-1.00 show=Outlines display exclude clear include summarize");
+//selectWindow("Results");
+Bfound = nResults; //should have found only one particle.
+
+if (Bfound<1){ 	//in case we cannot find border at the first try, give it another chance with green image
+	selectImage("Green");
+	run("8-bit");
+	setAutoThreshold("Default");
+	run("Convert to Mask");
+	run("Analyze Particles...", "size="+aboxmin+"-"+aboxmax+" circularity=0.20-1.00 show=Outlines display exclude clear include summarize");
+	Bfound = nResults;
+	if (Bfound<1){
+		Print("Retakepic");
+	close("Drawing of Green");
+	}
+}
+
+BX   = newArray(Bfound);
+BY   = newArray(Bfound);
+BH=newArray(Bfound);
+BW=newArray(Bfound);
+BFMax=newArray(Bfound);
+BFmin=newArray(Bfound);
+BFan=newArray(Bfound);
+BCX=newArray(Bfound);
+BCY=newArray(Bfound);
+BFX=newArray(Bfound);
+BFY=newArray(Bfound);
+
+//read enclosing box information from results table-----Bfound should be 1
+
+for (i=0; i<Bfound; i++){
+  BCX[i]=getResult('X',i);
+  BCY[i]=getResult('Y',i);
+  BX[i] = getResult('BX', i);              // read "X" column into array, used later for stats for logfile
+  BY[i] = getResult('BY', i);
+  BH[i] = getResult('Height', i);
+  BW[i]=getResult('Width', i);
+  BFMax[i]=getResult('Feret',i);
+  BFan[i]=getResult('FeretAngle',i);
+  BFmin[i]=getResult('MinFeret',i);
+  BFX[i]=getResult('FeretX',i);
+  BFY[i]=getResult('FeretY',i);
+}
+//save outside box information
+//selectWindow("Results");
+saveAs("Measurements", outsidebox);
+run("Close");
+//rotate outside box. We do a first crop so that the centroid of cropped figure is approx the centroid of outside box
+selectImage("Result of Red");
+makeRectangle(BX[0],BY[0],BW[0],BH[0]);
+run("Crop");
+//First rotation is Feret angle, in order to place the diagonal of the box in horizontal
+run("Rotate... ", "angle="+BFan[0]+" grid=1 interpolation=None fill enlarge");
+nwidth=getWidth();
+nheight=getHeight();
+//Now, we see what direction is the box looking by searching the centroid of each half of the box.
+run("Duplicate...", "title="+sqtopID);
+selectImage("Result of Red");
+run("Duplicate...", "title="+sqbotID);
+close("Result of Red");
+//top half
+selectImage(sqtopID);
+makeRectangle(0,0,nwidth,nheight/2);
+run("Crop");
+run("Set Measurements...", "centroid");
+aboxcmax=BW[0]*BH[0]/2;
+aboxcmin=aboxmax/500;
+run("Analyze Particles...", "size="+aboxcmin+"-"+aboxcmax+" circularity=0-1.00 show=Outlines display clear include summarize");
+BtopX   = newArray(Bfound);
+for (i=0; i<Bfound; i++){
+  BtopX[i]=getResult('X',i);
+}
+close();
+//selectWindow("Results");
+run("Close");
+//selectImage(sqtopID);
+//close();
+//bottom half
+selectImage(sqbotID);
+makeRectangle(0,nheight/2,nwidth,nheight/2);
+run("Crop");
+run("Set Measurements...", "centroid");
+aboxcmax=BW[0]*BH[0]/2;
+aboxcmin=aboxmax/500;
+run("Analyze Particles...", "size="+aboxcmin+"-"+aboxcmax+" circularity=0-1.00 show=Outlines display clear include summarize");
+BbotX   = newArray(Bfound);
+for (i=0; i<Bfound; i++){
+  BbotX[i]=getResult('X',i);
+}
+close();
+//selectWindow("Results");
+run("Close");
+//selectImage(sqbotID);
+//close();
+//now, go back to precropped image, and crop + rotate. Rotation angle will depend on orientation of the image
+
+selectImage(precropimgID);
+makeRectangle(BX[0],BY[0],BW[0],BH[0]);
+run("Crop");
+	if (BtopX[0]<BbotX[0]){
+		ang=BFan[0]-(asin(BFmin[0]/BFMax[0])*180/PI);
+	}else{
+		ang=BFan[0]+(asin(BFmin[0]/BFMax[0])*180/PI);
+	}
+run("Rotate... ", "angle="+ang+" grid=1 interpolation=None fill enlarge");
+//decide final cropping parameters
+cwidth    = getWidth();
+cheight=getHeight();
+LenB=sqrt(((BFMax[0])*(BFMax[0]))-((BFmin[0])*(BFmin[0])));
+xcrop=(cwidth/2)-(LenB/2);
+ycrop=(cheight/2)-(BFmin[0]/2);
+hcrop=BFmin[0];
+wcrop=LenB;
+//crop image and save
+makeRectangle(xcrop,ycrop,wcrop,hcrop);
+run("Crop");
+run("Duplicate...", "title="+startimgID);
+//save necessary information and close windows.
+saveAs("png", startimg);
+close(precropimgID);
+close("Blue");
+close("Red");
+close("Green");
+close("Result of Red");
+//selectImage("Drawing of Result of Red");
+saveAs("png", outbox);
+close();
+//-----------------------------------LOOK FOR MARKERS-----------------------------//
+//Stack in RGB and keep red and green images to find markers
+//new variables of working image are:
+//selectImage(startimgID);
+run("Duplicate...", "title="+procimgID);
+saveAs("png", procimgID);
+//selectImage(startimgID);
+imgwidth=getWidth();
+imgheight=getHeight();
+run("RGB Stack");
+run("Stack to Images");
+//close("Blue");
+imageCalculator("Add create", "Green","Red");
+run("Duplicate...", "title="+mprocID);
+run("Convert to Mask");
+run("Make Binary");
+run("Set Measurements...", "centroid feret's redirect=None decimal=3");
+//Here add constraints about the markers, which ones should be measured/skipped
+SizeMin = imgwidth*imgheight*0.001/2;	//needed area input-0.001 is arbitrary value for size constraints
+SizeMax = imgwidth*imgheight*0.001*4;
+oCircMin = 0.2;
+oCircMax = 1;
+panalyzerStr = "size="+SizeMin+"-"+SizeMax ;
+panalyzerStr = panalyzerStr+" circularity="+oCircMin+"-"+oCircMax ;
+panalyzerStr = panalyzerStr+" show=Outlines display exclude clear summarize";
+run("Analyze Particles...", panalyzerStr);
+outlinesID = getImageID();
+//get information about the markers from Results table. First create arrays and size them
+//selectWindow("Results");
+    //prepare vectors
+mfound = nResults;
+cenx   = newArray(mfound);
+ceny   = newArray(mfound);
+width=newArray(mfound);
+length=newArray(mfound);
+lanenum= mfound/2;
+
+//read marker information from results table
+for (i=0; i<mfound; i++){
+  cenx[i] = getResult('X', i);              // read "X" column into array, used later for stats for logfile
+  ceny[i] = getResult('Y', i);
+  width[i] = getResult('MinFeret', i);
+  length[i]=getResult('Feret', i);
+}
+//selectWindow("Results");
+saveAs("Measurements", markers);
+run("Close");
+//close("Green");
+//close("Result of Green");
+//rank the position of the markers in a index array. Rank x position first, and y position every two markers
+index=Array.rankPositions(cenx);
+for(i=0;i<mfound;i+=2){
+	if(ceny[index[i]]>ceny[index[i+1]]){
+		itemp=index[i];
+		index[i]=index[i+1];
+		index[i+1]=itemp;
+	}
+}
+//Measure average width and height of top markers
+sumx=0.0;
+sumy=0.0;
+avex=0.0;
+avey=0.0;
+for(i=0;i<mfound;i+=2){
+	sumy=sumy+width[index[i]];
+	sumx=sumx+length[index[i]];
+}
+avex=sumx/lanenum;
+avey=sumy/lanenum;
+//Measure average width and height of bottom markers
+bsumx=0.0;
+bsumy=0.0;
+bavex=0.0;
+bavey=0.0;
+for(i=1;i<(mfound+1);i+=2){
+	bsumy=bsumy+width[index[i]];
+	bsumx=bsumx+length[index[i]];
+}
+bavex=bsumx/lanenum;
+bavey=bsumy/lanenum;
+selectImage(procimgID);
+//Find again all information if image is upside down.
+
+if (bavey>avey){	//rotate figure and find new markers if necessary
+index=Array.reverse(index);
+selectImage(procimgID);
+run("Rotate... ", "angle=180 grid=1 interpolation=None fill enlarge");
+avey=bavey;
+avex=bavex;
+for (i=0; i<mfound; i++){
+  cenx[i] = wcrop-cenx[i];              // read "X" column into array, used later for stats for logfile
+  ceny[i] = hcrop-ceny[i];
+}
+}
+//----------------------------------ANALYZE LANES----------------------------------------
+logfile = File.open(imgdir+titlebase+"_logfile.txt");
+print(logfile, TimeString);
+print(logfile, "Lane, + Ctrl, Baseline + Ctrl, T band, Baseline T band, Overall baseline");
+
+//open preprocessed image
+
+run("8-bit");
+//draw a rectangle(lane), measure the profile in each rectangle . Create table with the data of all the lanes
+newImage("_histogram", "8-bit white", 400, 600, 1);
+histogramID = imgtitle+"_histogram.png";
+makeText("Summary of Results", 111,10);
+run("Draw");
+makeText("test band", 111,30);
+run("Draw");
+makeText("positive control", 111,190);
+run("Draw");
+makeRectangle(50, 400, 20, 20);
+run("Draw");
+floodFill(60, 410);
+makeText("Background", 80,400);
+run("Draw");
+makeRectangle(50, 430, 20, 20);
+run("Draw");
+makeText("Signal", 80,430);
+run("Draw");
+makeText("Ratio test", 180,390);
+run("Draw");
+makeText("Ratio pos", 300,390);
+run("Draw");
+makeRectangle(40, 395, 120, 60);
+run("Draw");
+
+savehistogram = imgdir+imgtitle+"_histogram.png";
+saveAs("png", savehistogram);
+
+for (j=0; j<mfound; j+=2){
+	selectImage(procimgID);
+	run("8-bit");
+	run("Invert");	//invert image colors to have max peaks in profile plots
+	val="value"+(j+2)/2;
+	//posval="positive"+(j+2)/2;
+	//testval="test"+(j+2)/2;
+	posx=cenx[index[j]]-(avex/20);
+	posy=ceny[index[j]]+avey;
+	posw=avex/10;
+	posh=ceny[index[j+1]]-avey-ceny[index[j]]-avey;
+	makeRectangle(posx,posy,posw,posh);
+	setKeyDown("alt");
+	a = getProfile();	//a is a vector with profile intensities
+	run("Plot Profile");
+	lanename = imgdir+imgtitle+"_lane"+((j/2)+1)+"profile.png";
+	saveAs("png", lanename);
+	alen=a.length;
+	b=newArray(alen);
+	for (i=0; i<alen; i++){
+	      setResult(val, i, a[i]);		//syntax: setResult("Column", row, value)
+		b[i]=i;						//b is a vector with profile positions
+	}
+	updateResults;
+	//------GAUSSIAN FIT IN THE DETECTION AREAS + MEASUREMENT-----------
+	//find vectors for gausian fit-the position of detection bands depends on length on lanes.
+	arlen=round(posh*0.25*1.2); //based on previous image analysis, we can change this numbers, this is length of the profiles that we want to measure
+	distance=round(posh*0.25*2); //based on previous image analysis, distance between bands, this is the distance between the lanes in the profiles
+	apos=newArray(arlen);	//divide vector a in positive and control bands
+	aend=newArray(10);
+	posblank=newArray(7);
+	atest=newArray(arlen);
+	bpos=newArray(arlen);
+	btest=newArray(arlen);
+	testx=newArray(arlen);//set x coordinates (position) for test and control bands
+	posx=newArray(arlen);
+	for (i=0; i<arlen; i++){	//image 2; in reality should be a function of alen value
+		apos[i]=a[i]	;			//apos is the vector of intensities of a in the positive control line of the test
+		atest[i]=	a[i+distance];			//atest is the vector of intensities of a in the test band
+		bpos[i]=b[i]/arlen;
+		btest[i]=b[i+ distance]/arlen;
+		testx[i]=i;
+		posx[i]=i+ distance;
+		//setResult(posval, i, apos[i]);
+		//setResult(testval, i, atest[i]);
+	}
+	for (i=0; i<10; i++){	//use last numbers to see background
+		aend[i]=a[i+alen-10]	;
+	}
+	for (i=0; i<7; i++){	//use first numbers to see background
+		posblank[i]=a[i+arlen];
+	}
+	//Fit a gaussian in the positive control area
+	Fit.doFit("Gaussian", bpos, apos);
+	rpos=Fit.p(0);	//obtain fitting parameters for positive control
+	spos=Fit.p(1);
+	tpos=Fit.p(2);
+	upos=Fit.p(3);
+	areapos=((spos-rpos)*abs((2^0.5)*upos)*(PI^0.5));//area of gaussian fit
+	if (2.3548*upos>1){	//FWHM
+	areapos=0;
+	}
+	//Fit.plot;	//plots the obtained fit. Uncomment to see the fits obtained
+	Array.getStatistics(apos, min, posmax, mean, std);
+	//Fit a gaussian in the test area
+	Fit.doFit("Gaussian", btest, atest);
+	rtest=Fit.p(0);
+	stest=Fit.p(1);
+	ttest=Fit.p(2);
+	utest=Fit.p(3);
+	areatest=((stest-rtest)*abs((2^0.5)*utest)*(PI^0.5));
+	if (2.3548*utest>1){ //FWHM
+	areatest=0;
+	}
+	//Fit.plot;	//plots the obtained fit. Uncomment to see the fits obtained
+	Array.getStatistics(atest, min, testmax, mean, std);
+	Array.getStatistics(a, baseline, max, mean, std);
+	Array.getStatistics(aend, endbaseline, endmax, endmean, std);
+	Array.getStatistics(posblank, startbaseline, startmax, startmean, std);
+
+	ratiosignal=(testmax)/endmean;
+	ratiopos=posmax/startmean;
+	print(logfile, "lane"+((j/2)+1)+" , "+posmax+" , "+startmean+", "+testmax+" , "+endmean+" ,"+baseline);
+	//Create histogram
+	selectImage(histogramID);
+	makeRectangle(30+(j*20), 140-testmax, 20,testmax);
+	run("Draw");
+	makeRectangle(30+(j*20), 140-endmean, 20,endmean);
+	run("Draw");
+	floodFill(40+(j*20), round(140-(endmean/2)));
+	makeRectangle(30+(j*20), 350-posmax, 20,posmax);
+	run("Draw");
+	makeRectangle(30+(j*20), 350-startmean, 20,startmean);
+	run("Draw");
+	floodFill(40+(j*20), round(350-(startmean/2)));
+	drawString(((j/2)+1), 40+(j*20), 350+30);
+	run("Draw");
+
+
+	drawString(((j/2)+1), 40+(j*20), 170);
+	run("Draw");
+	drawString("lane"+((j/2)+1)+": "+ratiosignal, 180, 430+(j*7));
+	run("Draw");
+	drawString("lane"+((j/2)+1)+": "+ratiopos, 300, 430+(j*7));
+	run("Draw");
+}
+stoptime = getTime();
+processing_time += (stoptime-starttime)/1000;
+print(logfile, "processing_time = "+processing_time+" s");
+saveAs("Measurements", logfile);
+run("Close");
+
+selectImage(histogramID);
+saveAs("png", savehistogram);
+run("Close");
+
+//selectWindow("Results");
+saveAs("Measurements", laneprof);
+//save results table with the lanes information
+run("Close");
+//close all other windows
+//selectWindow("Summary");
+saveAs("Measurements", msummary);
+run("Close");
+//selectWindow("Summary");
+run("Close");
+//selectWindow("Summary");
+run("Close");
+selectImage(procimgID);
+close();
+run("Close All");

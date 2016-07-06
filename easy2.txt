@@ -1,0 +1,109 @@
+//open("/Users/akyoung/Desktop/Helena MMDx/29a.png");
+//Get information about the image
+imgtitle    = getTitle();
+index = lastIndexOf(imgtitle, ".");
+if (index!=-1) imgtitle = substring(imgtitle, 0, index);  // remove suffix
+titlebase = imgtitle;
+imgID       = getImageID();
+filedir     = split(getDirectory("image"),"\n");
+imgdir      = filedir[0];
+fullimgwidth    = getWidth();  // this is in pixels
+fullimgheight   = getHeight();
+
+//Image in work names:
+procimgID = imgtitle+"_processing.jpg";
+startimg = imgdir+imgtitle+"_startimg.jpg";
+startimgID = imgtitle+"_startimg.jpg";
+precropimg = imgdir+imgtitle+"_precrop.jpg";
+precropimgID = imgtitle+"_precrop.jpg";
+mprocID = imgtitle+"_proc.jpg";
+outbox=imgdir+imgtitle+"_outsidebox.jpg";
+markers= imgdir+titlebase+"_MarkerInformation.txt";
+outsidebox= imgdir+titlebase+"_outsidebox.txt";
+laneprof= imgdir+titlebase+"_LaneProfiles.txt";
+intens= imgdir+titlebase+"_Gaussian_Intensities.txt";
+outlines= imgdir+titlebase+"_outlines.jpg";
+msummary=imgdir+titlebase+"_MarkerSummary.txt";
+sqtopID=imgtitle+"_sq.jpg";
+sqbotID=imgtitle+"_sq2.jpg";
+logf=imgdir+titlebase+"_logfile.txt";
+posh=5;
+//-----lane 1
+selectImage(imgID);
+i=1;
+j=1;
+normval=1;
+val="value"+1;
+	
+makeRectangle(80, 34, 5, 39);
+	setKeyDown("alt");
+	a = getProfile();	//a is a vector with profile intensities
+	run("Plot Profile");
+	alen=a.length;
+//	an=newArray(alen);
+//	Array.getStatistics(a, baseline, max, mean, std);
+
+	for (i=0; i<alen; i++){
+	      setResult(val, i, a[i]);		//syntax: setResult("Column", row, value)
+	}
+	updateResults;
+//-----lane 2
+i=2;
+j=2;
+normval=2;
+selectImage(imgID);
+val="value"+2;
+	
+makeRectangle(96,34,5,39);
+	setKeyDown("alt");
+	a = getProfile();	//a is a vector with profile intensities
+	run("Plot Profile");
+	alen=a.length;
+//	an=newArray(alen);
+//	Array.getStatistics(a, baseline, max, mean, std);
+
+	for (i=0; i<alen; i++){
+	      setResult(val, i, a[i]);		//syntax: setResult("Column", row, value)
+	}
+	updateResults;
+//-----lane 3
+selectImage(imgID);
+val="value"+3;
+	i=3;
+j=3;
+normval=3;
+makeRectangle(113, 33, 5, 41);
+	setKeyDown("alt");
+	a = getProfile();	//a is a vector with profile intensities
+	run("Plot Profile");
+	alen=a.length;
+//	an=newArray(alen);
+//	Array.getStatistics(a, baseline, max, mean, std);
+
+	for (i=0; i<alen; i++){
+	      setResult(val, i, a[i]);		//syntax: setResult("Column", row, value)
+	}
+	updateResults;
+//-----lane 4
+selectImage(imgID);
+i=4;
+j=4;
+normval=4;
+val="value"+4;
+	
+makeRectangle(130, 33, 5, 41);
+	setKeyDown("alt");
+	a = getProfile();	//a is a vector with profile intensities
+	run("Plot Profile");
+	alen=a.length;
+//	an=newArray(alen);
+//	Array.getStatistics(a, baseline, max, mean, std);
+
+	for (i=0; i<alen; i++){
+	      setResult(val, i, a[i]);		//syntax: setResult("Column", row, value)
+	}
+	updateResults;
+selectWindow("Results");
+
+saveAs("Measurements", laneprof);
+run("Clos
